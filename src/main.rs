@@ -1,37 +1,46 @@
-use std::{process::exit, env};
-use std::fs;
-use std::io::Write;
+use std::{process::exit, env, fs, io::Write};
 use reqwest::header::{REFERER, USER_AGENT};
+use env_logger::Env;
+
+#[macro_use]
+extern crate log;
 
 fn main() {
+    logger_init();
+
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
+        error!("argument is error");
         exit(-1);
     }
-    let bv_url = &args[1];
-    let mut c_url = String::from("https://api.bilibili.com/x/web-interface/view?bvid=");
-    let mut g_url = String::from("https://api.bilibili.com/x/player/playurl");
-    let bvid: &str;
-    match get_bvid(bv_url) {
-        Some(id) => bvid = id,
-        None => {
-                eprintln!("get bvid error");
-                exit(-1);
-            }
-    }
 
-    download(&mut c_url, &mut g_url, bvid);
+    if let Some(bvid) = get_bvid(&args[1]) {
+        download(bvid);
+    } else {
+        error!("url is invalid");
+    }
+}
+
+fn logger_init() {
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 }
 
 fn get_bvid(url: &str) -> Option<&str> {
-    match url.find("BV") {
-        Some(bv_index) => Some(&url[bv_index..bv_index+12]),
-        None => None
+    if let Some(bv_index) = url.find("BV") {
+        if url.len() < bv_index+12 {
+            return None
+        } else {
+            return Some(&url[bv_index..bv_index+12])
+        }
     }
+    None
 }
 
 #[tokio::main]
-async fn download(c_url: &mut String, g_url: &mut String, bvid: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn download(bvid: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let mut c_url = String::from("https://api.bilibili.com/x/web-interface/view?bvid=");
+    let mut g_url = String::from("https://api.bilibili.com/x/player/playurl");
+
     c_url.push_str(bvid);
     let r1 = reqwest::get(c_url.as_str())
         .await?
@@ -55,7 +64,7 @@ async fn download(c_url: &mut String, g_url: &mut String, bvid: &str) -> Result<
 
     let v = &r2["data"]["durl"][0]["url"];
     let real_url = v.as_str().unwrap();
-    println!("正在下载 {}，请稍后。。。", title.as_str().unwrap());
+    info!("正在下载 {}，请稍后。。。", title.as_str().unwrap());
     let client = reqwest::Client::builder()
         .build()?;
     let r3 = client.get(real_url)
@@ -71,6 +80,6 @@ async fn download(c_url: &mut String, g_url: &mut String, bvid: &str) -> Result<
     let mut file = fs::File::create(&fname)?;
     file.write_all(&r3)?;
 
-    println!("{} 下载完成", fname);
+    info!("{} 下载完成", fname);
     Ok(())
 }
